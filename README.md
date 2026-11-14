@@ -83,4 +83,3 @@ En el primer caso conviven dos emociones explícitas, `angry` y `sad`. Una sola 
 
 ## Declaración de uso de inteligencia artificial
 
-Se utilizó Codex de OpenAI para organizar el proyecto por módulos, implementar y ejecutar el entrenamiento y la evaluación, desarrollar la interfaz y redactar la documentación. Durante el desarrollo se verificaron la separación de las particiones, la carga del modelo exportado y el comportamiento de la aplicación. Queda pendiente que los integrantes revisen el código y expliquen en la defensa las partes que verificaron o modificaron.
