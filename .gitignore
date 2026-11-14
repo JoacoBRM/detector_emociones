@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+/.ejecuciones/
+/.exportacion-*/
+/modelo_emociones_distilbert/
+*.safetensors
+*.pt
+*.pth
+*.bin
+/resultados/errores.csv

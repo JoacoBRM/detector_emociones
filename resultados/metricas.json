@@ -1,0 +1,201 @@
+{
+  "dataset": "dair-ai/emotion",
+  "revision_dataset": "cab853a1dbdf4c42c2b3ef2173804746df8825fe",
+  "frases_entrenamiento": 15984,
+  "frases_validacion": 1997,
+  "frases_prueba": 2000,
+  "epoca_seleccionada": 2,
+  "f1_macro_validacion": 0.9083155697818834,
+  "orden_emociones": [
+    "Tristeza",
+    "Alegría",
+    "Amor",
+    "Ira",
+    "Miedo",
+    "Sorpresa"
+  ],
+  "distilbert": {
+    "exactitud": 0.9295,
+    "f1_macro": 0.8882984943653603,
+    "por_emocion": {
+      "Tristeza": {
+        "precision": 0.958904109589041,
+        "recall": 0.963855421686747,
+        "f1-score": 0.9613733905579399,
+        "support": 581.0
+      },
+      "Alegría": {
+        "precision": 0.9646539027982327,
+        "recall": 0.9424460431654677,
+        "f1-score": 0.9534206695778749,
+        "support": 695.0
+      },
+      "Amor": {
+        "precision": 0.8265895953757225,
+        "recall": 0.89937106918239,
+        "f1-score": 0.8614457831325302,
+        "support": 159.0
+      },
+      "Ira": {
+        "precision": 0.9325842696629213,
+        "recall": 0.9054545454545454,
+        "f1-score": 0.9188191881918819,
+        "support": 275.0
+      },
+      "Miedo": {
+        "precision": 0.8787878787878788,
+        "recall": 0.90625,
+        "f1-score": 0.8923076923076924,
+        "support": 224.0
+      },
+      "Sorpresa": {
+        "precision": 0.7424242424242424,
+        "recall": 0.7424242424242424,
+        "f1-score": 0.7424242424242424,
+        "support": 66.0
+      }
+    },
+    "matriz_confusion": [
+      [
+        560,
+        6,
+        0,
+        10,
+        5,
+        0
+      ],
+      [
+        1,
+        655,
+        30,
+        3,
+        0,
+        6
+      ],
+      [
+        0,
+        15,
+        143,
+        1,
+        0,
+        0
+      ],
+      [
+        14,
+        3,
+        0,
+        249,
+        9,
+        0
+      ],
+      [
+        6,
+        0,
+        0,
+        4,
+        203,
+        11
+      ],
+      [
+        3,
+        0,
+        0,
+        0,
+        14,
+        49
+      ]
+    ]
+  },
+  "tfidf_regresion_logistica": {
+    "exactitud": 0.8565,
+    "f1_macro": 0.8218140850982761,
+    "por_emocion": {
+      "Tristeza": {
+        "precision": 0.9243542435424354,
+        "recall": 0.8623063683304647,
+        "f1-score": 0.8922528940338379,
+        "support": 581.0
+      },
+      "Alegría": {
+        "precision": 0.9016641452344932,
+        "recall": 0.8575539568345324,
+        "f1-score": 0.8790560471976401,
+        "support": 695.0
+      },
+      "Amor": {
+        "precision": 0.6794258373205742,
+        "recall": 0.8930817610062893,
+        "f1-score": 0.7717391304347826,
+        "support": 159.0
+      },
+      "Ira": {
+        "precision": 0.8315789473684211,
+        "recall": 0.8618181818181818,
+        "f1-score": 0.8464285714285714,
+        "support": 275.0
+      },
+      "Miedo": {
+        "precision": 0.8653846153846154,
+        "recall": 0.8035714285714286,
+        "f1-score": 0.8333333333333334,
+        "support": 224.0
+      },
+      "Sorpresa": {
+        "precision": 0.6,
+        "recall": 0.8636363636363636,
+        "f1-score": 0.7080745341614907,
+        "support": 66.0
+      }
+    },
+    "matriz_confusion": [
+      [
+        501,
+        32,
+        6,
+        26,
+        12,
+        4
+      ],
+      [
+        15,
+        596,
+        56,
+        12,
+        4,
+        12
+      ],
+      [
+        1,
+        12,
+        142,
+        2,
+        0,
+        2
+      ],
+      [
+        14,
+        10,
+        3,
+        237,
+        10,
+        1
+      ],
+      [
+        9,
+        7,
+        2,
+        7,
+        180,
+        19
+      ],
+      [
+        2,
+        4,
+        0,
+        1,
+        2,
+        57
+      ]
+    ]
+  }
+}
