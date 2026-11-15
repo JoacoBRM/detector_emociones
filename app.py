@@ -1,3 +1,5 @@
+import base64
+import random
 from pathlib import Path
 
 import altair as alt
@@ -17,6 +19,49 @@ EJEMPLOS = {
 }
 
 
+RUTA_ICONOS = Path(__file__).parent / "iconos"
+AVATAR_USUARIO = RUTA_ICONOS / "avatar-usuario.svg"
+AVATAR_ASISTENTE = RUTA_ICONOS / "avatar-asistente.svg"
+AVATARES_EMOCION = {
+    "Tristeza": "tristeza",
+    "Alegría": "alegria",
+    "Amor": "amor",
+    "Ira": "ira",
+    "Miedo": "miedo",
+    "Sorpresa": "sorpresa",
+}
+
+
+def avatar_respuesta(turno: dict) -> str:
+    if "predicciones" not in turno:
+        return str(AVATAR_ASISTENTE)
+    archivo = AVATARES_EMOCION.get(turno["predicciones"][0][0])
+    return str(RUTA_ICONOS / f"avatar-{archivo}.svg") if archivo else str(AVATAR_ASISTENTE)
+# Clave del widget -> (archivo SVG de Solar Icons, lado del texto donde se dibuja).
+ICONOS_BOTONES = {
+    "ajustes": ("configuracion", "before"),
+    "aleatoria": ("autogenerar", "before"),
+    "ejemplos": ("ejemplos", "before"),
+    "analizar": ("enviar", "after"),
+}
+
+
+@st.cache_data
+def estilos_iconos() -> str:
+    reglas = []
+    for clave, (archivo, lado) in ICONOS_BOTONES.items():
+        contenido = base64.b64encode((RUTA_ICONOS / f"{archivo}.svg").read_bytes()).decode()
+        margen = "margin-right" if lado == "before" else "margin-left"
+        reglas.append(
+            f".st-key-{clave} button [data-testid='stMarkdownContainer'] p::{lado} {{"
+            f"content: ''; display: inline-block; width: 1.15em; height: 1.15em; {margen}: 0.5em;"
+            "vertical-align: -0.2em; background-color: currentColor;"
+            f"-webkit-mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;"
+            f"mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;}}"
+        )
+    return "<style>" + "".join(reglas) + "</style>"
+
+
 @st.cache_resource
 def cargar_modelo(ruta: Path) -> Clasificador:
     return Clasificador(ruta)
@@ -24,7 +69,20 @@ def cargar_modelo(ruta: Path) -> Clasificador:
 
 def cargar_ejemplo(frase: str) -> None:
     st.session_state.frase = frase
-    st.session_state.pop("resultado", None)
+
+
+def cargar_aleatoria() -> None:
+    otras = [frase for frase in EJEMPLOS.values() if frase != st.session_state.get("frase")]
+    st.session_state.frase = random.choice(otras)
+
+
+def enviar() -> None:
+    frase = st.session_state.get("frase", "").strip()
+    if not frase:
+        st.toast("Escribe una frase antes de analizar.")
+        return
+    st.session_state.pendiente = frase
+    st.session_state.frase = ""
 
 
 def grafico_probabilidades(predicciones: list[tuple[str, float]]) -> alt.LayerChart:
@@ -47,50 +105,69 @@ def grafico_probabilidades(predicciones: list[tuple[str, float]]) -> alt.LayerCh
     return (barras + porcentajes).properties(height=215)
 
 
+def analizar(frase: str) -> dict:
+    try:
+        with st.spinner("Analizando la frase…"):
+            predicciones = cargar_modelo(RUTA_MODELO).predecir(frase)
+    except FileNotFoundError:
+        return {"frase": frase, "error": "No se encontró la carpeta del modelo. Ejecuta el entrenamiento indicado en el README."}
+    except (OSError, ValueError):
+        return {"frase": frase, "error": "No fue posible cargar el modelo. Comprueba los pesos, la configuración y el tokenizador."}
+    return {"frase": frase, "predicciones": predicciones}
+
+
+def mostrar_respuesta(turno: dict, umbral: int) -> None:
+    if "error" in turno:
+        st.error(turno["error"])
+        return
+    predicciones = turno["predicciones"]
+    emocion, confianza = predicciones[0]
+    principal, probabilidad = st.columns(2)
+    principal.metric("Emoción detectada", emocion, border=True)
+    probabilidad.metric("Confianza del modelo", f"{confianza:.1%}", border=True)
+    if confianza * 100 < umbral:
+        st.warning("La confianza está por debajo del umbral configurado.")
+    st.altair_chart(grafico_probabilidades(predicciones), width="stretch")
+
+
 def main() -> None:
     st.set_page_config(page_title="Detector de emociones", layout="centered")
-    st.title("Detector de emociones")
-    st.write("El modelo se entrenó en inglés. Escribe una frase para analizar la emoción que expresa.")
-    frase = st.text_area("Frase", key="frase", placeholder="I feel…", height=100).strip()
+    st.markdown(estilos_iconos(), unsafe_allow_html=True)
+    historial = st.session_state.setdefault("historial", [])
 
-    with st.expander("Frases de ejemplo"):
-        columnas = st.columns(2)
-        for indice, (nombre, ejemplo) in enumerate(EJEMPLOS.items()):
-            columnas[indice % 2].button(
-                nombre, on_click=cargar_ejemplo, args=(ejemplo,), width="stretch",
-            )
-
-    if st.button("Analizar", type="primary", key="analizar"):
-        st.session_state.pop("resultado", None)
-        if not frase:
-            st.warning("Escribe una frase antes de pulsar Analizar.")
-        else:
-            try:
-                with st.spinner("Analizando la frase…"):
-                    predicciones = cargar_modelo(RUTA_MODELO).predecir(frase)
-            except FileNotFoundError:
-                st.error("No se encontró la carpeta del modelo. Ejecuta el entrenamiento indicado en el README.")
-            except (OSError, ValueError):
-                st.error("No fue posible cargar el modelo. Comprueba los pesos, la configuración y el tokenizador.")
-            else:
-                st.session_state.resultado = (frase, predicciones)
-
-    with st.sidebar:
-        st.header("Configuración")
-        umbral = st.slider("Umbral de confianza (%)", 0, 100, 60, step=5)
+    encabezado, ajustes = st.columns([4, 1.4], vertical_alignment="center")
+    encabezado.title("Detector de emociones", anchor=False)
+    encabezado.caption("Escribe una frase en inglés y detectará la emoción que transmite.")
+    with ajustes.container(key="ajustes"), st.popover("Configuración", width="stretch"):
+        umbral = st.slider("Umbral de confianza (%)", 0, 100, 60, step=5, key="umbral")
         st.caption("Si la probabilidad principal está por debajo del umbral, se muestra un aviso.")
 
-    resultado = st.session_state.get("resultado")
-    if resultado and resultado[0] == frase:
-        predicciones = resultado[1]
-        emocion, confianza = predicciones[0]
-        principal, probabilidad = st.columns(2)
-        principal.metric("Emoción detectada", emocion, border=True)
-        probabilidad.metric("Confianza del modelo", f"{confianza:.1%}", border=True)
-        if confianza * 100 < umbral:
-            st.warning("La confianza está por debajo del umbral configurado.")
-        st.subheader("Probabilidad por emoción")
-        st.altair_chart(grafico_probabilidades(predicciones), width="stretch")
+    for turno in historial:
+        with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
+            st.write(turno["frase"])
+        with st.chat_message("assistant", avatar=avatar_respuesta(turno)):
+            mostrar_respuesta(turno, umbral)
+
+    pendiente = st.session_state.pop("pendiente", None)
+    if pendiente:
+        with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
+            st.write(pendiente)
+        turno = analizar(pendiente)
+        historial.append(turno)
+        with st.chat_message("assistant", avatar=avatar_respuesta(turno)):
+            mostrar_respuesta(turno, umbral)
+
+    with st.container(border=True, key="compositor"):
+        st.text_area(
+            "Frase", key="frase", placeholder="Escribe una frase en inglés… (por ejemplo: I feel…)",
+            height=90, label_visibility="collapsed",
+        )
+        aleatoria, ejemplos, _, enviar_frase = st.columns([1.5, 1.5, 2, 1.3], vertical_alignment="center")
+        aleatoria.button("Autogenerar", on_click=cargar_aleatoria, width="stretch", key="aleatoria")
+        with ejemplos.container(key="ejemplos"), st.popover("Ejemplos", width="stretch"):
+            for nombre, ejemplo in EJEMPLOS.items():
+                st.button(nombre, on_click=cargar_ejemplo, args=(ejemplo,), width="stretch", key=f"ej_{nombre}")
+        enviar_frase.button("Analizar", type="primary", on_click=enviar, width="stretch", key="analizar")
 
 
 if __name__ == "__main__":

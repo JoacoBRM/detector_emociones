@@ -41,9 +41,32 @@ def calcular_metricas(resultado):
     }
 
 
+def confirmar_dispositivo(usa_cuda: bool, dispositivo: str) -> bool:
+    print(f"Dispositivo de entrenamiento: {dispositivo}", flush=True)
+    print(f"PyTorch {torch.__version__} | CUDA disponible: {'sí' if usa_cuda else 'no'}", flush=True)
+    if not usa_cuda:
+        print("AVISO: no se detectó GPU. El entrenamiento en CPU será mucho más lento.", flush=True)
+    while True:
+        try:
+            respuesta = input("Ingresa 1 para continuar o 2 para cancelar: ").strip()
+        except EOFError:
+            respuesta = "2"
+        if respuesta == "1":
+            return True
+        if respuesta == "2":
+            print("Entrenamiento cancelado.", flush=True)
+            return False
+        print("Opción no válida.", flush=True)
+
+
 def entrenar(ruta_modelo: Path, epocas: int, lote: int, prueba_rapida: bool) -> None:
     if ruta_modelo.exists():
         raise FileExistsError(f"Ya existe {ruta_modelo}. Indica otra ruta con --modelo-dir.")
+
+    usa_cuda = torch.cuda.is_available()
+    dispositivo = torch.cuda.get_device_name(0) if usa_cuda else "CPU"
+    if not confirmar_dispositivo(usa_cuda, dispositivo):
+        return
 
     set_seed(SEMILLA)
     datos = cargar_datos()
@@ -63,10 +86,7 @@ def entrenar(ruta_modelo: Path, epocas: int, lote: int, prueba_rapida: bool) -> 
         label2id=EMOCION_A_ID,
         use_safetensors=True,
     )
-    usa_cuda = torch.cuda.is_available()
-    dispositivo = torch.cuda.get_device_name(0) if usa_cuda else "CPU"
     print(f"Entrenamiento: {len(entrenamiento):,} frases | Validación: {len(validacion):,}", flush=True)
-    print(f"Dispositivo: {dispositivo}", flush=True)
 
     ruta_modelo.parent.mkdir(parents=True, exist_ok=True)
     RUTA_EJECUCIONES.mkdir(parents=True, exist_ok=True)
