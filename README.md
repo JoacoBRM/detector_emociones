@@ -80,6 +80,7 @@ En el primer caso conviven dos emociones explícitas, `angry` y `sad`. Una sola 
 - [DistilBERT base](https://huggingface.co/distilbert/distilbert-base-uncased).
 - [Corpus de emociones DAIR.AI](https://huggingface.co/datasets/dair-ai/emotion).
 - Material de clase sobre ajuste fino de DistilBERT y clasificación de estilo.
+- Iconos de la interfaz (`iconos/`): [Solar Icon Set](https://icon-sets.iconify.design/solar/) de 480 Design, bajo licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Declaración de uso de inteligencia artificial
 
