@@ -53,7 +53,8 @@ ICONOS_BOTONES = {
     "[borrar_]": ("borrar", "before"),
     "modo": ("modo", "before"),
     # La opción activa del selector de modo lleva una marca de verificación.
-    "[modoactivo_]": ("check", "after"),
+    "[modoactivo_]": ("check", "before"),
+    "[descarga_]": ("descargar", "before"),
 }
 
 
@@ -67,7 +68,7 @@ def estilos_iconos() -> str:
             selector = f"[class*='st-key-{clave[1:-1]}']"
         else:
             selector = f".st-key-{clave}"
-        separacion = "0" if archivo == "borrar" else "0.5em"
+        separacion = "0" if archivo in ("borrar", "autogenerar", "enviar") else "0.5em"
         reglas.append(
             f"{selector} button [data-testid='stMarkdownContainer'] p::{lado} {{"
             f"content: ''; display: inline-block; width: 1.15em; height: 1.15em; {margen}: {separacion};"
@@ -75,18 +76,52 @@ def estilos_iconos() -> str:
             f"-webkit-mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;"
             f"mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;}}"
         )
-    # «Acerca de» se ancla en la barra superior de Streamlit, a la izquierda de Deploy.
+    # «Acerca de» se ancla a la izquierda de la barra superior de Streamlit, ya fuera de la barra
+    # lateral (18,75 rem de ancho). Con ella plegada se desplaza para no tapar su botón de despliegue.
     reglas.append(
-        ".st-key-acerca {position: fixed; top: 0.6rem; right: 9rem; width: auto; z-index: 1000000;}"
+        ".st-key-acerca {position: fixed; top: 0.6rem; left: 4rem; width: auto; z-index: 1000000;}"
+        "body:has([data-testid='stSidebar'][aria-expanded='true']) .st-key-acerca {left: 19.75rem;}"
     )
-    reglas.append(".st-key-lista_chats button {justify-content: flex-start; text-align: left;}")
+    # Filas del historial: un rectángulo por chat, del mismo ancho que «Nuevo chat».
+    reglas.append(
+        ".st-key-lista_chats {gap: 0.4rem;}"
+        "[class*='st-key-fila_'] {border: 1px solid color-mix(in srgb, currentColor 22%, transparent);"
+        "border-radius: 0.5rem; gap: 0; overflow: hidden;}"
+        "[class*='st-key-fila_']:hover {background: color-mix(in srgb, currentColor 8%, transparent);}"
+        "[class*='st-key-fila_activa_'] {background: color-mix(in srgb, currentColor 14%, transparent);}"
+        "[class*='st-key-fila_'] [data-testid='stHorizontalBlock'] {gap: 0; flex-wrap: nowrap;}"
+        "[class*='st-key-fila_'] [data-testid='stColumn'] {min-width: 0;}"
+        "[data-testid='stColumn']:has([class*='st-key-borrar_']) {flex: 0 0 2.5rem; width: 2.5rem;}"
+        "[class*='st-key-fila_'] button {background: transparent; border: 0; min-height: 2.5rem;}"
+        "[class*='st-key-chat_'] button {justify-content: flex-start; text-align: left; padding-left: 0.85rem;}"
+        "[class*='st-key-chat_'] button > div, [class*='st-key-chat_'] button > div > span"
+        "{display: block; width: 100%; overflow: hidden;}"
+        "[class*='st-key-chat_'] button p {overflow: hidden; text-overflow: ellipsis;"
+        "white-space: nowrap; text-align: left;}"
+    )
+    # Selector de modo al estilo Gemini: marca a la izquierda y descripción dentro de cada opción.
     reglas.append(
         ".st-key-opciones_modo button > div, .st-key-opciones_modo button > div > span"
         "{display: block; width: 100%;}"
+        ".st-key-opciones_modo button {color: inherit !important; padding: 0.55rem 0.75rem;}"
         ".st-key-opciones_modo button [data-testid='stMarkdownContainer'] {width: 100%;}"
-        ".st-key-opciones_modo button p {display: flex; justify-content: space-between;"
-        "align-items: center; width: 100%; text-align: left;}"
+        ".st-key-opciones_modo button p {position: relative; display: block; width: 100%;"
+        "padding-left: 1.9em; text-align: left; line-height: 1.4;}"
+        # La marca de la opción activa se coloca a la izquierda, centrada en las dos líneas.
+        ".st-key-opciones_modo button p::before {position: absolute; left: 0; top: 50%;"
+        "margin: -0.575em 0 0 0 !important; vertical-align: baseline;}"
     )
+    # Los botones de solo icono conservan un tamaño fijo y los demás no parten el texto en ventanas estrechas.
+    reglas.append(
+        "[data-testid='stHorizontalBlock']:has(.st-key-analizar) {flex-wrap: nowrap;}"
+        "[data-testid='stHorizontalBlock']:has(.st-key-analizar) > [data-testid='stColumn'] {min-width: 0;}"
+        "[data-testid='stColumn']:has(.st-key-aleatoria, .st-key-analizar)"
+        "{flex: 0 0 auto; width: auto; min-width: 2.75rem;}"
+        ".st-key-aleatoria button, .st-key-analizar button {min-width: 2.75rem; padding-left: 0; padding-right: 0;}"
+        ".st-key-ejemplos button, .st-key-modo button {white-space: nowrap;}"
+    )
+    # Contenedor principal más ancho que el predeterminado de Streamlit.
+    reglas.append("[data-testid='stMainBlockContainer'] {max-width: 62rem;}")
     return "<style>" + "".join(reglas) + "</style>"
 
 
@@ -252,16 +287,18 @@ def barra_lateral() -> None:
             st.caption("Aún no hay chats guardados.")
         with st.container(key="lista_chats"):
             for chat in st.session_state.chats:
-                texto, borrar = st.columns([5, 1], vertical_alignment="center")
                 activo = chat["id"] == st.session_state.chat_id
-                texto.button(
-                    chat["titulo"], on_click=abrir_chat, args=(chat["id"],), width="stretch",
-                    type="secondary" if activo else "tertiary", key=f"chat_{chat['id']}",
-                )
-                borrar.button(
-                    "​", on_click=borrar_chat, args=(chat["id"],), type="tertiary",
-                    help="Borrar este chat", key=f"borrar_{chat['id']}",
-                )
+                # Una sola fila con borde: el título y la papelera comparten el mismo rectángulo.
+                with st.container(key=f"fila_activa_{chat['id']}" if activo else f"fila_{chat['id']}"):
+                    texto, borrar = st.columns([7, 1.2], vertical_alignment="center")
+                    texto.button(
+                        chat["titulo"], on_click=abrir_chat, args=(chat["id"],), width="stretch",
+                        type="tertiary", key=f"chat_{chat['id']}",
+                    )
+                    borrar.button(
+                        "​", on_click=borrar_chat, args=(chat["id"],), type="tertiary",
+                        help="Borrar este chat", key=f"borrar_{chat['id']}",
+                    )
 
 
 def enviar() -> None:
@@ -345,12 +382,26 @@ def analizar_lote(frases: list[str]) -> dict:
     return {"frase": resumen, "frases": frases, "lote": filas}
 
 
+@st.cache_data
+def icono_emocion(emocion: str) -> str:
+    """Icono de la emoción como URI de datos, para mostrarlo dentro de una tabla."""
+    archivo = AVATARES_EMOCION.get(emocion)
+    if archivo is None:
+        return ""
+    contenido = base64.b64encode((RUTA_ICONOS / f"avatar-{archivo}.svg").read_bytes()).decode()
+    return f"data:image/svg+xml;base64,{contenido}"
+
+
 def grafico_distribucion(filas: list[dict]) -> alt.LayerChart:
     cuentas = pd.Series([fila["emocion"] for fila in filas]).value_counts()
-    tabla = pd.DataFrame({"Emoción": list(EMOCIONES), "Frases": [int(cuentas.get(e, 0)) for e in EMOCIONES]})
+    conteos = [int(cuentas.get(e, 0)) for e in EMOCIONES]
+    tabla = pd.DataFrame({"Emoción": list(EMOCIONES), "Frases": conteos})
+    maximo = max(conteos)
+    # Con pocas frases se marcan solo los enteros (0, 1, 2…) y se deja aire para las cifras.
+    eje = alt.Axis(values=list(range(maximo + 1))) if maximo <= 10 else alt.Axis(tickMinStep=1, format="d")
     base = alt.Chart(tabla).encode(
         x=alt.X("Emoción:N", title=None, sort=list(EMOCIONES), axis=alt.Axis(labelAngle=0, labelFontSize=12)),
-        y=alt.Y("Frases:Q", title=None, axis=alt.Axis(tickMinStep=1, format="d")),
+        y=alt.Y("Frases:Q", title=None, axis=eje, scale=alt.Scale(domain=[0, maximo * 1.15 + 0.3])),
     )
     barras = base.mark_bar(cornerRadiusEnd=4).encode(
         color=alt.value("#167d69"), tooltip=["Emoción:N", "Frases:Q"],
@@ -365,10 +416,14 @@ def mostrar_lote(turno: dict, umbral: int, clave: str) -> None:
     tabla["segura"] = ["sí" if fila["confianza"] * 100 >= umbral else "no" for fila in filas]
     seguras = int((tabla["segura"] == "sí").sum())
     st.caption(f"{len(filas)} frases analizadas · {seguras} con confianza igual o mayor al umbral ({umbral} %).")
+    visible = tabla.rename(
+        columns={"frase": "Frase", "emocion": "Emoción", "confianza": "Confianza", "segura": "Segura"},
+    )
+    visible.insert(1, "Icono", [icono_emocion(emocion) for emocion in tabla["emocion"]])
     st.dataframe(
-        tabla.rename(columns={"frase": "Frase", "emocion": "Emoción", "confianza": "Confianza", "segura": "Segura"}),
-        hide_index=True, width="stretch",
+        visible, hide_index=True, width="stretch",
         column_config={
+            "Icono": st.column_config.ImageColumn(" ", width="small"),
             "Confianza": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
         },
     )
@@ -469,8 +524,11 @@ def main() -> None:
                 "O sube un archivo CSV con una columna llamada «frase»", type="csv",
                 key=f"csv_{st.session_state.csv_n}",
             )
-        aleatoria, ejemplos, modo, enviar_frase = st.columns([1.5, 1.4, 1.7, 1.3], vertical_alignment="center")
-        aleatoria.button("Autogenerar", on_click=cargar_aleatoria, width="stretch", key="aleatoria")
+        aleatoria, ejemplos, _, modo, enviar_frase = st.columns([0.6, 1.8, 4, 2.3, 0.6], vertical_alignment="center")
+        aleatoria.button(
+            "​", on_click=cargar_aleatoria, width="stretch", key="aleatoria",
+            help="Autogenerar: pone frases de ejemplo al azar",
+        )
         with ejemplos.container(key="ejemplos"), st.popover("Ejemplos", width="stretch"):
             for nombre, ejemplo in EJEMPLOS.items():
                 st.button(nombre, on_click=cargar_ejemplo, args=(ejemplo,), width="stretch", key=f"ej_{nombre}")
@@ -479,11 +537,13 @@ def main() -> None:
                 for id_modo, (nombre, descripcion) in MODOS.items():
                     activo = id_modo == st.session_state.modo
                     st.button(
-                        nombre, on_click=elegir_modo, args=(id_modo,), width="stretch", type="tertiary",
+                        f"{nombre}  \n:gray[:small[{descripcion}]]", on_click=elegir_modo, args=(id_modo,),
+                        width="stretch", type="tertiary",
                         key=f"modoactivo_{id_modo}" if activo else f"modo_{id_modo}",
                     )
-                    st.caption(descripcion)
-        enviar_frase.button("Analizar", type="primary", on_click=enviar, width="stretch", key="analizar")
+        enviar_frase.button(
+            "​", type="primary", on_click=enviar, width="stretch", key="analizar", help="Analizar",
+        )
 
     # Se dibuja al final para que el chat recién guardado aparezca en esta misma ejecución.
     barra_lateral()
