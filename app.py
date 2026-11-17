@@ -1,6 +1,7 @@
 import base64
 import json
 import random
+import uuid
 from pathlib import Path
 
 import altair as alt
@@ -38,6 +39,8 @@ def avatar_respuesta(turno: dict) -> str:
         return str(AVATAR_ASISTENTE)
     archivo = AVATARES_EMOCION.get(turno["predicciones"][0][0])
     return str(RUTA_ICONOS / f"avatar-{archivo}.svg") if archivo else str(AVATAR_ASISTENTE)
+
+
 # Clave del widget -> (archivo SVG de Solar Icons, lado del texto donde se dibuja).
 ICONOS_BOTONES = {
     "ajustes": ("configuracion", "before"),
@@ -45,6 +48,9 @@ ICONOS_BOTONES = {
     "aleatoria": ("autogenerar", "before"),
     "ejemplos": ("ejemplos", "before"),
     "analizar": ("enviar", "after"),
+    "nuevo_chat": ("nuevo-chat", "before"),
+    # Prefijo: un botón de borrar por chat, con clave «borrar_<id>».
+    "[borrar_]": ("borrar", "before"),
 }
 
 
@@ -54,9 +60,16 @@ def estilos_iconos() -> str:
     for clave, (archivo, lado) in ICONOS_BOTONES.items():
         contenido = base64.b64encode((RUTA_ICONOS / f"{archivo}.svg").read_bytes()).decode()
         margen = "margin-right" if lado == "before" else "margin-left"
+        if clave.startswith("["):
+            selector = f"[class*='st-key-{clave[1:-1]}']"
+            margen = "margin-right"
+            separacion = "0"
+        else:
+            selector = f".st-key-{clave}"
+            separacion = "0.5em"
         reglas.append(
-            f".st-key-{clave} button [data-testid='stMarkdownContainer'] p::{lado} {{"
-            f"content: ''; display: inline-block; width: 1.15em; height: 1.15em; {margen}: 0.5em;"
+            f"{selector} button [data-testid='stMarkdownContainer'] p::{lado} {{"
+            f"content: ''; display: inline-block; width: 1.15em; height: 1.15em; {margen}: {separacion};"
             "vertical-align: -0.2em; background-color: currentColor;"
             f"-webkit-mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;"
             f"mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;}}"
@@ -65,6 +78,7 @@ def estilos_iconos() -> str:
     reglas.append(
         ".st-key-acerca {position: fixed; top: 0.6rem; right: 9rem; width: auto; z-index: 1000000;}"
     )
+    reglas.append(".st-key-lista_chats button {justify-content: flex-start; text-align: left;}")
     return "<style>" + "".join(reglas) + "</style>"
 
 
@@ -141,6 +155,75 @@ def cargar_aleatoria() -> None:
     st.session_state.frase = random.choice(otras)
 
 
+RUTA_HISTORIAL = Path(__file__).parent / ".historial" / "chats.json"
+
+
+def cargar_chats() -> list[dict]:
+    try:
+        datos = json.loads(RUTA_HISTORIAL.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [chat for chat in datos if isinstance(chat, dict) and chat.get("id") and chat.get("turnos")]
+
+
+def guardar_chats() -> None:
+    RUTA_HISTORIAL.parent.mkdir(parents=True, exist_ok=True)
+    temporal = RUTA_HISTORIAL.with_suffix(".tmp")
+    temporal.write_text(
+        json.dumps(st.session_state.chats, ensure_ascii=False, indent=1), encoding="utf-8",
+    )
+    temporal.replace(RUTA_HISTORIAL)
+
+
+def chat_actual() -> dict | None:
+    return next((chat for chat in st.session_state.chats if chat["id"] == st.session_state.chat_id), None)
+
+
+def nuevo_chat() -> None:
+    st.session_state.chat_id = uuid.uuid4().hex
+
+
+def abrir_chat(id_chat: str) -> None:
+    st.session_state.chat_id = id_chat
+
+
+def borrar_chat(id_chat: str) -> None:
+    st.session_state.chats = [chat for chat in st.session_state.chats if chat["id"] != id_chat]
+    guardar_chats()
+    if st.session_state.chat_id == id_chat:
+        nuevo_chat()
+
+
+def registrar_turno(turno: dict) -> None:
+    chat = chat_actual()
+    if chat is None:
+        titulo = turno["frase"] if len(turno["frase"]) <= 40 else turno["frase"][:37] + "…"
+        chat = {"id": st.session_state.chat_id, "titulo": titulo, "turnos": []}
+        st.session_state.chats.insert(0, chat)
+    chat["turnos"].append(turno)
+    guardar_chats()
+
+
+def barra_lateral() -> None:
+    with st.sidebar:
+        st.button("Nuevo chat", on_click=nuevo_chat, width="stretch", key="nuevo_chat")
+        st.caption("Historial")
+        if not st.session_state.chats:
+            st.caption("Aún no hay chats guardados.")
+        with st.container(key="lista_chats"):
+            for chat in st.session_state.chats:
+                texto, borrar = st.columns([5, 1], vertical_alignment="center")
+                activo = chat["id"] == st.session_state.chat_id
+                texto.button(
+                    chat["titulo"], on_click=abrir_chat, args=(chat["id"],), width="stretch",
+                    type="secondary" if activo else "tertiary", key=f"chat_{chat['id']}",
+                )
+                borrar.button(
+                    "​", on_click=borrar_chat, args=(chat["id"],), type="tertiary",
+                    help="Borrar este chat", key=f"borrar_{chat['id']}",
+                )
+
+
 def enviar() -> None:
     frase = st.session_state.get("frase", "").strip()
     if not frase:
@@ -198,7 +281,11 @@ def mostrar_respuesta(turno: dict, umbral: int) -> None:
 def main() -> None:
     st.set_page_config(page_title="Detector de emociones", layout="centered")
     st.markdown(estilos_iconos(), unsafe_allow_html=True)
-    historial = st.session_state.setdefault("historial", [])
+    if "chats" not in st.session_state:
+        st.session_state.chats = cargar_chats()
+        nuevo_chat()
+    chat = chat_actual()
+    historial = chat["turnos"] if chat else []
 
     with st.container(key="acerca"):
         if st.button("Acerca de", type="tertiary"):
@@ -222,7 +309,7 @@ def main() -> None:
         with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
             st.write(pendiente)
         turno = analizar(pendiente)
-        historial.append(turno)
+        registrar_turno(turno)
         with st.chat_message("assistant", avatar=avatar_respuesta(turno)):
             mostrar_respuesta(turno, umbral)
 
@@ -237,6 +324,9 @@ def main() -> None:
             for nombre, ejemplo in EJEMPLOS.items():
                 st.button(nombre, on_click=cargar_ejemplo, args=(ejemplo,), width="stretch", key=f"ej_{nombre}")
         enviar_frase.button("Analizar", type="primary", on_click=enviar, width="stretch", key="analizar")
+
+    # Se dibuja al final para que el chat recién guardado aparezca en esta misma ejecución.
+    barra_lateral()
 
 
 if __name__ == "__main__":
