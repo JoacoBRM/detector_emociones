@@ -458,7 +458,7 @@ def mostrar_respuesta(turno: dict, umbral: int, clave: str = "") -> None:
     principal.metric("Emoción detectada", emocion, border=True)
     probabilidad.metric("Confianza del modelo", f"{confianza:.1%}", border=True)
     if confianza * 100 < umbral:
-        st.warning("La confianza está por debajo del umbral configurado.")
+        st.warning(f"El modelo no está seguro: la confianza es menor que el umbral ({umbral}%).")
     st.altair_chart(grafico_probabilidades(predicciones), width="stretch")
 
 
