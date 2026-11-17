@@ -1,4 +1,5 @@
 import base64
+import json
 import random
 from pathlib import Path
 
@@ -6,7 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from detector.configuracion import RUTA_MODELO
+from detector.configuracion import RUTA_MODELO, RUTA_RESULTADOS
 from detector.inferencia import Clasificador
 
 EJEMPLOS = {
@@ -40,6 +41,7 @@ def avatar_respuesta(turno: dict) -> str:
 # Clave del widget -> (archivo SVG de Solar Icons, lado del texto donde se dibuja).
 ICONOS_BOTONES = {
     "ajustes": ("configuracion", "before"),
+    "acerca": ("acerca", "before"),
     "aleatoria": ("autogenerar", "before"),
     "ejemplos": ("ejemplos", "before"),
     "analizar": ("enviar", "after"),
@@ -59,7 +61,70 @@ def estilos_iconos() -> str:
             f"-webkit-mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;"
             f"mask: url(data:image/svg+xml;base64,{contenido}) center / contain no-repeat;}}"
         )
+    # «Acerca de» se ancla en la barra superior de Streamlit, a la izquierda de Deploy.
+    reglas.append(
+        ".st-key-acerca {position: fixed; top: 0.6rem; right: 9rem; width: auto; z-index: 1000000;}"
+    )
     return "<style>" + "".join(reglas) + "</style>"
+
+
+DESCRIPCION_EMOCIONES = {
+    "Tristeza": "pérdida, nostalgia o desánimo",
+    "Alegría": "felicidad, logro o entusiasmo",
+    "Amor": "cariño, ternura o afecto",
+    "Ira": "enojo, molestia o indignación",
+    "Miedo": "temor, inquietud o amenaza",
+    "Sorpresa": "asombro o algo inesperado",
+}
+
+
+def leer_metricas() -> dict | None:
+    ruta = RUTA_RESULTADOS / "metricas.json"
+    try:
+        return json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+@st.dialog("Acerca del detector", width="large")
+def acerca_de() -> None:
+    st.markdown(
+        "Aplicación que lee una frase **en inglés** y estima qué emoción expresa. "
+        "Muestra la emoción principal, la confianza del modelo y la probabilidad de las seis clases."
+    )
+    st.subheader("Emociones que detecta", anchor=False)
+    for emocion, descripcion in DESCRIPCION_EMOCIONES.items():
+        st.markdown(f"- **{emocion}**: {descripcion}")
+
+    st.subheader("El modelo", anchor=False)
+    st.markdown(
+        "- **Base:** DistilBERT (`distilbert-base-uncased`), ajustado con ajuste fino.\n"
+        "- **Datos:** corpus público `dair-ai/emotion` (frases cortas en inglés).\n"
+        "- **Entrada:** se truncan las frases a 64 tokens. Otros idiomas funcionan peor."
+    )
+    metricas = leer_metricas()
+    if metricas:
+        st.subheader("Rendimiento en el conjunto de prueba", anchor=False)
+        st.caption(f"{metricas['frases_prueba']:,} frases que el modelo no vio al entrenar.")
+        modelo, referencia = metricas["distilbert"], metricas["tfidf_regresion_logistica"]
+        tabla = pd.DataFrame(
+            {
+                "Exactitud": [f"{modelo['exactitud']:.1%}", f"{referencia['exactitud']:.1%}"],
+                "F1 macro": [f"{modelo['f1_macro']:.3f}", f"{referencia['f1_macro']:.3f}"],
+            },
+            index=["DistilBERT ajustado", "TF-IDF + regresión logística"],
+        )
+        st.table(tabla)
+
+    st.subheader("Cómo interpretarlo", anchor=False)
+    st.markdown(
+        "- La **confianza** es la probabilidad que el modelo asigna a la emoción principal; "
+        "no garantiza que sea correcta.\n"
+        "- El **umbral** (en Configuración) muestra un aviso cuando la confianza queda por debajo.\n"
+        "- Una frase puede mezclar emociones. El modelo elige solo una.\n"
+        "- Es un proyecto académico de Ciencia de Datos, no una herramienta de diagnóstico."
+    )
+    st.caption("Iconos: Solar Icon Set de 480 Design (CC BY 4.0).")
 
 
 @st.cache_resource
@@ -134,6 +199,10 @@ def main() -> None:
     st.set_page_config(page_title="Detector de emociones", layout="centered")
     st.markdown(estilos_iconos(), unsafe_allow_html=True)
     historial = st.session_state.setdefault("historial", [])
+
+    with st.container(key="acerca"):
+        if st.button("Acerca de", type="tertiary"):
+            acerca_de()
 
     encabezado, ajustes = st.columns([4, 1.4], vertical_alignment="center")
     encabezado.title("Detector de emociones", anchor=False)
