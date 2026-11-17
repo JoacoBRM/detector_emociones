@@ -8,7 +8,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from detector.configuracion import RUTA_MODELO, RUTA_RESULTADOS
+from detector.configuracion import EMOCIONES, ID_A_EMOCION, RUTA_MODELO, RUTA_RESULTADOS
 from detector.inferencia import Clasificador
 
 EJEMPLOS = {
@@ -51,6 +51,9 @@ ICONOS_BOTONES = {
     "nuevo_chat": ("nuevo-chat", "before"),
     # Prefijo: un botón de borrar por chat, con clave «borrar_<id>».
     "[borrar_]": ("borrar", "before"),
+    "modo": ("modo", "before"),
+    # La opción activa del selector de modo lleva una marca de verificación.
+    "[modoactivo_]": ("check", "after"),
 }
 
 
@@ -62,11 +65,9 @@ def estilos_iconos() -> str:
         margen = "margin-right" if lado == "before" else "margin-left"
         if clave.startswith("["):
             selector = f"[class*='st-key-{clave[1:-1]}']"
-            margen = "margin-right"
-            separacion = "0"
         else:
             selector = f".st-key-{clave}"
-            separacion = "0.5em"
+        separacion = "0" if archivo == "borrar" else "0.5em"
         reglas.append(
             f"{selector} button [data-testid='stMarkdownContainer'] p::{lado} {{"
             f"content: ''; display: inline-block; width: 1.15em; height: 1.15em; {margen}: {separacion};"
@@ -79,6 +80,13 @@ def estilos_iconos() -> str:
         ".st-key-acerca {position: fixed; top: 0.6rem; right: 9rem; width: auto; z-index: 1000000;}"
     )
     reglas.append(".st-key-lista_chats button {justify-content: flex-start; text-align: left;}")
+    reglas.append(
+        ".st-key-opciones_modo button > div, .st-key-opciones_modo button > div > span"
+        "{display: block; width: 100%;}"
+        ".st-key-opciones_modo button [data-testid='stMarkdownContainer'] {width: 100%;}"
+        ".st-key-opciones_modo button p {display: flex; justify-content: space-between;"
+        "align-items: center; width: 100%; text-align: left;}"
+    )
     return "<style>" + "".join(reglas) + "</style>"
 
 
@@ -146,13 +154,45 @@ def cargar_modelo(ruta: Path) -> Clasificador:
     return Clasificador(ruta)
 
 
+MODOS = {
+    "una": ("Una frase", "Analiza una frase y muestra todas las probabilidades."),
+    "varias": ("Varias frases", "Una frase por línea o un archivo CSV con columna «frase»."),
+}
+MAX_LOTE = 500
+TAMANO_LOTE_MODELO = 64
+
+
+def elegir_modo(modo: str) -> None:
+    st.session_state.modo = modo
+
+
 def cargar_ejemplo(frase: str) -> None:
-    st.session_state.frase = frase
+    actual = st.session_state.get("frase", "").strip()
+    if st.session_state.modo == "varias" and actual:
+        if frase not in actual.splitlines():
+            st.session_state.frase = f"{actual}\n{frase}"
+    else:
+        st.session_state.frase = frase
 
 
 def cargar_aleatoria() -> None:
+    if st.session_state.modo == "varias":
+        st.session_state.frase = "\n".join(random.sample(list(EJEMPLOS.values()), 4))
+        return
     otras = [frase for frase in EJEMPLOS.values() if frase != st.session_state.get("frase")]
     st.session_state.frase = random.choice(otras)
+
+
+def frases_de_csv(archivo) -> list[str]:
+    try:
+        tabla = pd.read_csv(archivo, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        archivo.seek(0)
+        tabla = pd.read_csv(archivo, encoding="latin-1")
+    columnas = {str(columna).strip().lower(): columna for columna in tabla.columns}
+    if "frase" not in columnas:
+        raise ValueError("El CSV debe tener una columna llamada «frase».")
+    return [str(frase).strip() for frase in tabla[columnas["frase"]].dropna() if str(frase).strip()]
 
 
 RUTA_HISTORIAL = Path(__file__).parent / ".historial" / "chats.json"
@@ -225,11 +265,32 @@ def barra_lateral() -> None:
 
 
 def enviar() -> None:
-    frase = st.session_state.get("frase", "").strip()
-    if not frase:
-        st.toast("Escribe una frase antes de analizar.")
-        return
-    st.session_state.pendiente = frase
+    texto = st.session_state.get("frase", "")
+    if st.session_state.modo == "una":
+        frase = texto.strip()
+        if not frase:
+            st.toast("Escribe una frase antes de analizar.")
+            return
+        st.session_state.pendiente = frase
+    else:
+        frases = [linea.strip() for linea in texto.splitlines() if linea.strip()]
+        archivo = st.session_state.get(f"csv_{st.session_state.csv_n}")
+        if archivo is not None:
+            try:
+                frases += frases_de_csv(archivo)
+            except (ValueError, pd.errors.EmptyDataError) as error:
+                # ParserError también es un ValueError; solo mostramos nuestro mensaje propio.
+                mensaje = str(error)
+                st.toast(mensaje if mensaje.startswith("El CSV") else "No se pudo leer el CSV.")
+                return
+        if not frases:
+            st.toast("Escribe al menos una frase o sube un archivo CSV.")
+            return
+        if len(frases) > MAX_LOTE:
+            st.toast(f"Solo se analizarán las primeras {MAX_LOTE} frases.")
+            frases = frases[:MAX_LOTE]
+        st.session_state.pendiente = frases
+        st.session_state.csv_n += 1
     st.session_state.frase = ""
 
 
@@ -264,9 +325,77 @@ def analizar(frase: str) -> dict:
     return {"frase": frase, "predicciones": predicciones}
 
 
-def mostrar_respuesta(turno: dict, umbral: int) -> None:
+def analizar_lote(frases: list[str]) -> dict:
+    resumen = f"Lote de {len(frases)} frases"
+    try:
+        with st.spinner(f"Analizando {len(frases)} frases…"):
+            modelo = cargar_modelo(RUTA_MODELO)
+            filas = []
+            for inicio in range(0, len(frases), TAMANO_LOTE_MODELO):
+                grupo = frases[inicio:inicio + TAMANO_LOTE_MODELO]
+                for frase, probabilidades in zip(grupo, modelo.probabilidades(grupo).tolist()):
+                    mejor = max(range(len(probabilidades)), key=probabilidades.__getitem__)
+                    filas.append(
+                        {"frase": frase, "emocion": ID_A_EMOCION[mejor], "confianza": probabilidades[mejor]},
+                    )
+    except FileNotFoundError:
+        return {"frase": resumen, "error": "No se encontró la carpeta del modelo. Ejecuta el entrenamiento indicado en el README."}
+    except (OSError, ValueError):
+        return {"frase": resumen, "error": "No fue posible cargar el modelo. Comprueba los pesos, la configuración y el tokenizador."}
+    return {"frase": resumen, "frases": frases, "lote": filas}
+
+
+def grafico_distribucion(filas: list[dict]) -> alt.LayerChart:
+    cuentas = pd.Series([fila["emocion"] for fila in filas]).value_counts()
+    tabla = pd.DataFrame({"Emoción": list(EMOCIONES), "Frases": [int(cuentas.get(e, 0)) for e in EMOCIONES]})
+    base = alt.Chart(tabla).encode(
+        x=alt.X("Emoción:N", title=None, sort=list(EMOCIONES), axis=alt.Axis(labelAngle=0, labelFontSize=12)),
+        y=alt.Y("Frases:Q", title=None, axis=alt.Axis(tickMinStep=1, format="d")),
+    )
+    barras = base.mark_bar(cornerRadiusEnd=4).encode(
+        color=alt.value("#167d69"), tooltip=["Emoción:N", "Frases:Q"],
+    )
+    cifras = base.mark_text(dy=-8, fontSize=12).encode(text="Frases:Q")
+    return (barras + cifras).properties(height=220)
+
+
+def mostrar_lote(turno: dict, umbral: int, clave: str) -> None:
+    filas = turno["lote"]
+    tabla = pd.DataFrame(filas)
+    tabla["segura"] = ["sí" if fila["confianza"] * 100 >= umbral else "no" for fila in filas]
+    seguras = int((tabla["segura"] == "sí").sum())
+    st.caption(f"{len(filas)} frases analizadas · {seguras} con confianza igual o mayor al umbral ({umbral} %).")
+    st.dataframe(
+        tabla.rename(columns={"frase": "Frase", "emocion": "Emoción", "confianza": "Confianza", "segura": "Segura"}),
+        hide_index=True, width="stretch",
+        column_config={
+            "Confianza": st.column_config.ProgressColumn(format="percent", min_value=0, max_value=1),
+        },
+    )
+    st.subheader("Distribución de emociones", anchor=False)
+    st.altair_chart(grafico_distribucion(filas), width="stretch")
+    st.download_button(
+        "Descargar resultados (CSV)", data=tabla.to_csv(index=False).encode("utf-8-sig"),
+        file_name="resultados_emociones.csv", mime="text/csv", on_click="ignore", key=f"descarga_{clave}",
+    )
+
+
+def mostrar_frases_lote(turno: dict) -> None:
+    frases = turno.get("frases", [])
+    st.write(turno["frase"])
+    with st.expander("Ver frases enviadas"):
+        for frase in frases[:50]:
+            st.markdown(f"- {frase}")
+        if len(frases) > 50:
+            st.caption(f"… y {len(frases) - 50} más.")
+
+
+def mostrar_respuesta(turno: dict, umbral: int, clave: str = "") -> None:
     if "error" in turno:
         st.error(turno["error"])
+        return
+    if "lote" in turno:
+        mostrar_lote(turno, umbral, clave)
         return
     predicciones = turno["predicciones"]
     emocion, confianza = predicciones[0]
@@ -284,6 +413,8 @@ def main() -> None:
     if "chats" not in st.session_state:
         st.session_state.chats = cargar_chats()
         nuevo_chat()
+    st.session_state.setdefault("modo", "una")
+    st.session_state.setdefault("csv_n", 0)
     chat = chat_actual()
     historial = chat["turnos"] if chat else []
 
@@ -298,31 +429,60 @@ def main() -> None:
         umbral = st.slider("Umbral de confianza (%)", 0, 100, 60, step=5, key="umbral")
         st.caption("Si la probabilidad principal está por debajo del umbral, se muestra un aviso.")
 
-    for turno in historial:
-        with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
+    def mostrar_pregunta(turno: dict) -> None:
+        if "frases" in turno:
+            mostrar_frases_lote(turno)
+        else:
             st.write(turno["frase"])
+
+    for posicion, turno in enumerate(historial):
+        with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
+            mostrar_pregunta(turno)
         with st.chat_message("assistant", avatar=avatar_respuesta(turno)):
-            mostrar_respuesta(turno, umbral)
+            mostrar_respuesta(turno, umbral, f"{st.session_state.chat_id}_{posicion}")
 
     pendiente = st.session_state.pop("pendiente", None)
     if pendiente:
+        es_lote = isinstance(pendiente, list)
         with st.chat_message("user", avatar=str(AVATAR_USUARIO)):
-            st.write(pendiente)
-        turno = analizar(pendiente)
+            if es_lote:
+                mostrar_frases_lote({"frase": f"Lote de {len(pendiente)} frases", "frases": pendiente})
+            else:
+                st.write(pendiente)
+        turno = analizar_lote(pendiente) if es_lote else analizar(pendiente)
         registrar_turno(turno)
+        posicion = len(chat_actual()["turnos"]) - 1
         with st.chat_message("assistant", avatar=avatar_respuesta(turno)):
-            mostrar_respuesta(turno, umbral)
+            mostrar_respuesta(turno, umbral, f"{st.session_state.chat_id}_{posicion}")
 
+    varias = st.session_state.modo == "varias"
     with st.container(border=True, key="compositor"):
         st.text_area(
-            "Frase", key="frase", placeholder="Escribe una frase en inglés… (por ejemplo: I feel…)",
-            height=90, label_visibility="collapsed",
+            "Frase", key="frase", height=140 if varias else 90, label_visibility="collapsed",
+            placeholder=(
+                "Escribe una frase por línea, en inglés…\nI feel so proud of you\nThis makes me really angry"
+                if varias else "Escribe una frase en inglés… (por ejemplo: I feel…)"
+            ),
         )
-        aleatoria, ejemplos, _, enviar_frase = st.columns([1.5, 1.5, 2, 1.3], vertical_alignment="center")
+        if varias:
+            st.file_uploader(
+                "O sube un archivo CSV con una columna llamada «frase»", type="csv",
+                key=f"csv_{st.session_state.csv_n}",
+            )
+        aleatoria, ejemplos, modo, enviar_frase = st.columns([1.5, 1.4, 1.7, 1.3], vertical_alignment="center")
         aleatoria.button("Autogenerar", on_click=cargar_aleatoria, width="stretch", key="aleatoria")
         with ejemplos.container(key="ejemplos"), st.popover("Ejemplos", width="stretch"):
             for nombre, ejemplo in EJEMPLOS.items():
                 st.button(nombre, on_click=cargar_ejemplo, args=(ejemplo,), width="stretch", key=f"ej_{nombre}")
+        with modo.container(key="modo"), st.popover(MODOS[st.session_state.modo][0], width="stretch"):
+            with st.container(key="opciones_modo"):
+                for id_modo, (nombre, descripcion) in MODOS.items():
+                    activo = id_modo == st.session_state.modo
+                    st.button(
+                        nombre, on_click=elegir_modo, args=(id_modo,), width="stretch", type="tertiary",
+                        key=f"modoactivo_{id_modo}" if activo else f"modo_{id_modo}",
+                    )
+                    st.caption(descripcion)
         enviar_frase.button("Analizar", type="primary", on_click=enviar, width="stretch", key="analizar")
 
     # Se dibuja al final para que el chat recién guardado aparezca en esta misma ejecución.
