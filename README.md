@@ -17,28 +17,27 @@ py -3.11 -m venv .venv
 
 La primera corrida descarga el corpus y los pesos base desde Hugging Face. El entrenamiento genera `modelo_emociones_distilbert/` con los pesos ajustados, la configuración y el tokenizador. La carpeta se excluye de Git. Si ya tienes esa carpeta, instala `requirements.txt` y ejecuta directamente el último comando. La aplicación hace la inferencia en CPU.
 
-Para entrenar en Windows con una GPU NVIDIA compatible, instala la variante CUDA de PyTorch en el entorno antes del resto de las dependencias. La corrida del proyecto usó PyTorch 2.9.1 con CUDA 12.6.
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cu126
-```
-
-Para comprobar el flujo de entrenamiento en pocos pasos, ejecuta `.\.venv\Scripts\python.exe -m detector.entrenamiento --prueba-rapida`. Sus pesos se guardan en `.ejecuciones/`. Para repetir el ajuste completo cuando ya existe el modelo, usa `--modelo-dir` con otra carpeta.
-
 ## Funcionalidades
 
 - Campo para una frase en inglés y botón **Analizar**. Las etiquetas del resultado se muestran en español.
 - Emoción principal, confianza y gráfico con las seis probabilidades ordenadas.
 - Avisos para una entrada vacía o un modelo que falta. El tokenizador trunca las entradas a 64 tokens.
-- Carga en caché del modelo y el tokenizador con `@st.cache_resource`.
 - **Frases de ejemplo** que rellenan el campo de texto.
 - **Umbral de confianza** ajustable. Si la probabilidad de la emoción principal queda por debajo del umbral, aparece un aviso.
 
 ## Capturas
 
-![Análisis de una frase que expresa alegría con el gráfico de las seis probabilidades](capturas/analisis.png)
+![alt text](capturas/image.png)
 
-![Aviso de confianza para una predicción por debajo del umbral configurado](capturas/aviso-confianza.png)
+![alt text](capturas/image-2.png)
+
+![alt text](capturas/image-5.png)
+
+![alt text](capturas/image-3.png)
+
+![alt text](capturas/image-1.png)
+
+![alt text](capturas/image-4.png)
 
 ## Código
 
@@ -62,8 +61,6 @@ Se eligió la segunda época por su F1 macro de validación (**0,9083**). La com
 | DistilBERT ajustado | 92,95 % | 0,8883 |
 | TF-IDF + regresión logística | 85,65 % | 0,8218 |
 
-El comando de evaluación guarda las métricas por emoción y las matrices de confusión. También genera `resultados/errores.csv` con las 141 frases que DistilBERT clasificó de forma distinta a la etiqueta del corpus. [Métricas y matrices de confusión](resultados/metricas.json)
-
 ## Análisis de errores
 
 La confusión más frecuente fue **alegría → amor** (30 casos). **Sorpresa** tuvo el F1 más bajo (0,7424). El modelo detectó 49 de sus 66 ejemplos y clasificó 14 como miedo.
@@ -84,3 +81,11 @@ En el primer caso conviven dos emociones explícitas, `angry` y `sad`. Una sola 
 
 ## Declaración de uso de inteligencia artificial
 
+En el proyecto se usaron dos herramientas de IA como asistentes de programación:
+
+- **GPT Sol 6.1** (OpenAI) se utilizó para montar el backend de la aplicación: el paquete `detector/` con la carga y validación del corpus, el entrenamiento, la evaluación y la inferencia.
+- **Claude Sonnet 5.5** (Anthropic), a través de Claude Code, se utilizó para:
+  - Añadir la confirmación del dispositivo (CPU o GPU) antes de iniciar el entrenamiento en `detector/entrenamiento.py`.
+  - Rediseñar la interfaz de `app.py`: chat con burbujas, ventana «Acerca de», configuración en una ventana flotante, selector de modo, historial de chats en la barra lateral, análisis por lotes con carga de CSV, iconos de [Solar Icon Set](https://icon-sets.iconify.design/solar/) y avatares por emoción.
+
+El entrenamiento del modelo, la evaluación y las pruebas de la aplicación las ejecutó el equipo de forma manual, corrigiendo y probando el resultado en cada paso. El modelo que clasifica las emociones es DistilBERT ajustado por el equipo con el corpus `dair-ai/emotion`.
