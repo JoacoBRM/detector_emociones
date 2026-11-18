@@ -87,5 +87,6 @@ En el proyecto se usaron dos herramientas de IA como asistentes de programación
 - **Claude Sonnet 5.5** (Anthropic), a través de Claude Code, se utilizó para:
   - Añadir la confirmación del dispositivo (CPU o GPU) antes de iniciar el entrenamiento en `detector/entrenamiento.py`.
   - Rediseñar la interfaz de `app.py`: chat con burbujas, ventana «Acerca de», configuración en una ventana flotante, selector de modo, historial de chats en la barra lateral, análisis por lotes con carga de CSV, iconos de [Solar Icon Set](https://icon-sets.iconify.design/solar/) y avatares por emoción.
+  - Mejorar el diseño del README.md
 
 El entrenamiento del modelo, la evaluación y las pruebas de la aplicación las ejecutó el equipo de forma manual, corrigiendo y probando el resultado en cada paso. El modelo que clasifica las emociones es DistilBERT ajustado por el equipo con el corpus `dair-ai/emotion`.
